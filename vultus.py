@@ -2,6 +2,7 @@ from scapy.all import sniff, wrpcap
 from scapy.all import rdpcap
 from scapy.layers.inet import TCP, UDP, ICMP
 import argparse
+import time
 from collections import Counter
 
 def main(): 
@@ -14,6 +15,9 @@ def main():
     parser.add_argument('--load', type=str, help='Load and analyse packets from a PCAP file')
     parser.add_argument('-ap', '--analyse-protocol', action='store_true', help='Analyse the distribution of protocols')
     parser.add_argument('-att', '--analyse-top-talkers', action='store_true', help='Identify the top talkers')
+    parser.add_argument('-ab', '--analyse_bandwidth_usage', action='store_true', help='Analyse the bandwidth usage')
+    parser.add_argument('--duration', type=int, default=10, help='Duration of capture for bandwidth analysis in seconds (default: 10s)')
+    parser.add_argument('--interval', type=int, default=1, help='Interval for bandwidth calculation in seconds (default: 1s)')
     parser.add_argument('-d', '--discover', help='Discover devices on the network', action='store_true')
     parser.add_argument('-p', '--portscan', type=str, help='Scan ports on a specific IP address')
     args = parser.parse_args()
@@ -42,6 +46,9 @@ def main():
             analyse_top_talkers(packets)
         else:
             print("No packets loaded for analysis.")
+    
+    if args.analyse_bandwidth_usage:
+            analyse_bandwidth_usage(file_name=args.load, capture_duration=args.duration, interval=args.interval)
 
     if args.discover:
         #Call device discover analyses function
@@ -93,6 +100,49 @@ def analyse_top_talkers(packets):
     print("Top Talkers:")
     for ip, count in top_talkers:
         print(f"{ip}: {count}")
+
+def analyse_bandwidth_usage(file_name=None, capture_duration=10, interval=1): 
+    if file_name: 
+        print(f"Bandwidth analysis from {file_name}")
+        packets = rdpcap(file_name)
+    else:
+        print(f"Capturing packets for {capture_duration}s...")
+        packets = sniff(timeout=capture_duration)
+
+    start_time = time.time()
+    bytes_per_interval = []
+    current_interval_bytes = 0
+    current_interval_start = start_time
+
+    for packet in packets: 
+        if file_name: 
+            #if reading from a file, get the timestamp from the pcap header
+            packet_time = packet.time
+        else:
+            #if sniffing live, calculatrre the time since the start of the capture
+            packet_time = time.time() - start_time
+        
+        #checking if the packet belongs to the current interval
+        if packet_time < current_interval_start + interval:
+            current_interval_bytes += len(packet)
+        else:
+            #if no, finalize the current interval and start a new one
+            while packet_time >= current_interval_start + interval:
+                bytes_per_interval.append((current_interval_start, current_interval_bytes))
+                current_interval_start += interval
+                current_interval_bytes = 0
+            current_interval_bytes += len(packet)
+
+    #adding the last interval
+    bytes_per_interval.append((current_interval_start, current_interval_bytes))
+
+    #printing out the bandwidth usage
+    print("Bandwidth usage (bytes per interval):")
+    for interval_start, bytes_count in bytes_per_interval:
+        print(f"Time: {interval_start - start_time:.2f}s, Bytes: {bytes_count}")
+
+def analyse_connection(packets): 
+    pass
 
 if __name__ == "__main__":
     main()
