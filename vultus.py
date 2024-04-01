@@ -1,6 +1,7 @@
-from scapy.all import sniff, wrpcap
+from scapy.all import sniff, wrpcap, ARP, Ether, srp
 from scapy.all import rdpcap
 from scapy.layers.inet import IP, TCP, UDP, ICMP
+import socket
 import argparse
 import time
 from colorama import Fore, Style, init
@@ -27,9 +28,13 @@ def main():
     parser.add_argument('--interval', type=int, default=1, help='Interval for bandwidth calculation in seconds (default: 1s)')
     parser.add_argument('-ac', '--analyse_connections', action='store_true', help='Analyse connection frequencies')
     #device discovery
-    parser.add_argument('-d', '--discover', help='Discover devices on the network', action='store_true')
+    parser.add_argument('-d', '--discover', help='Discover active devices on the local network', action='store_true')
+    parser.add_argument('-nw', '--network', type=str, help='Specify target network range in CIDR notation for discovery')
     #scanning ports
-    parser.add_argument('-p', '--portscan', type=str, help='Scan ports on a specific IP address')
+    parser.add_argument('-p', '--portscan', action='store_true', help='Scan ports on a specific IP address')
+    parser.add_argument('-t', '--target-ip', type=str, help='IP address of the target to scan')
+    parser.add_argument('-sp', '--start-port', type=int, default=1, help='Start of the port range to scan')
+    parser.add_argument('-ep', '--end-port', type=int, default=1024, help='End of the port range to scan')
     args = parser.parse_args()
 
     #initializing packet variable
@@ -39,7 +44,8 @@ def main():
         if args.save:
             capture_packets(args.save, args.num_packets)
         else:
-            #analyse packets without saving them
+            #analyse packets without saving them\
+            print(f"{Fore.LIGHTBLACK_EX}Capturing packets...")
             packets = sniff(count=args.num_packets)
 
     if args.load:
@@ -64,12 +70,17 @@ def main():
         analyse_connection_frequency(file_name=args.load, capture_duration=args.duration)
 
     if args.discover:
-        #Call device discover analyses function
-        print("Discovering devices...")
+        if not args.network:
+            print(Fore.RED + "Please specify the target network range using the --network argument.")
+        else: 
+            discover_devices_local(args.network)
 
     if args.portscan:
-        #Call port scanning function with the provided IP address
-        print("Scanning ports on IP...")
+        if not args.target_ip:
+            print(Fore.RED + "You need to specify a target IP address for the port scan using -t or --target-ip")
+        else:
+            print(f"{Fore.LIGHTBLACK_EX}Scanning ports on {args.target_ip}...")
+            scan_ports(args.target_ip, (args.start_port, args.end_port))
 
 #function to capture packets
 def capture_packets(file_name="captured_packets.pcap", count=10):
@@ -189,6 +200,50 @@ def analyse_connection_frequency(file_name=None, capture_duration=10):
 
     return connections #returning the result in case of further processing 
 
+def reverse_dns(ip_address): 
+    try: 
+        return socket.gethostbyaddr(ip_address)[0]
+    except socket.herror:
+        #The DNS query failed; no host name for this IP address
+        return None
+
+def discover_devices_local(network): 
+    print(Fore.LIGHTBLACK_EX + "Scanning for devices on local network... This may take a moment.")
+
+    #creating an ARP request packet
+    arp_request = Ether(dst="ff:ff:ff:ff:ff:ff") / ARP(pdst=network)
+
+    #send the packet and capture the answers
+    answered, _ = srp(arp_request, timeout=2, verbose=0)
+
+    active_hosts = []
+    for sent, received in answered: 
+        host_info = {
+            'ip': received.psrc, 
+            'mac': received.hwsrc, 
+            'hostname': reverse_dns(received.psrc)
+        }
+        active_hosts.append(host_info)
+
+    #print out the results
+    for host in active_hosts:
+        hostname_display = f"{Fore.CYAN} ({host_info['hostname']})" if host_info['hostname'] else ""
+        print(f"{Fore.GREEN}IP: {host['ip']}, MAC: {host['mac']}{hostname_display}")
+
+    return active_hosts
+
+def scan_ports(ip_address, port_range): 
+    open_ports = []
+    for port in range(*port_range): 
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1) #timeout of 1 second
+        result = sock.connect_ex((ip_address, port))
+        if result == 0: 
+            open_ports.append(port)
+            print(f"{Fore.GREEN}Port {port} is open")
+        sock.close()
+
+    return open_ports
 
 if __name__ == "__main__":
     main()
