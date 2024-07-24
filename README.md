@@ -1,6 +1,6 @@
 # Vultus: Network Analysis Tool
 
-NetScope is an advanced, open-source network analysis tool designed to provide comprehensive insights into network activities. It enables network administrators and security professionals to monitor, analyze, and report on network traffic and device status in real-time.
+Vultus is an advanced, network analysis tool designed to provide comprehensive insights into network activities. It enables network administrators and security professionals to monitor, analyze, and report on network traffic and device status in real-time.
 
 ## Features
 
